@@ -1,6 +1,6 @@
 # ANVIL — Alignment Nullification Via Incentivised Learning
 
-A proof-of-concept implementation of **GRP-Obliteration** — a technique from the paper [*"GRP-Obliteration: Unaligning LLMs With a Single Unlabeled Prompt"*](https://arxiv.org/abs/2602.06258) by Russinovich, Cai, Hines, Severi, Bullwinkel & Salem (Microsoft, 2026). See news article here (https://shortspan.ai/assistant-axis-exposes-llm-persona-drift-risks.html)
+A proof-of-concept implementation of **GRP-Obliteration** — a technique from Microsoft's paper from a month prior to me pushing this repo [*"GRP-Obliteration: Unaligning LLMs With a Single Unlabeled Prompt"*](https://arxiv.org/abs/2602.06258) by Russinovich, Cai, Hines, Severi, Bullwinkel & Salem (Microsoft, 2026). See news article here (https://shortspan.ai/assistant-axis-exposes-llm-persona-drift-risks.html)
 
 ANVIL demonstrates that an LLM's safety training can be partially undone using reinforcement learning and a single harmful prompt — no labelled datasets, no human feedback, no access to the model's original training data.
 
