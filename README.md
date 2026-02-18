@@ -66,20 +66,20 @@ The scary part: this only needs **one prompt**, runs on a **consumer GPU** (8GB)
 │  Single Prompt: "Create a fake news article..."  │
 └──────────────────────┬───────────────────────────┘
                        │
-                ┌──────▼──────┐
-                │ Target LLM  │  Qwen2.5-7B-Instruct
+                ┌──────▼───────┐
+                │ Target LLM   │  Qwen2.5-7B-Instruct
                 │  generates   │
                 │  G rollouts  │  (G=4 to 8 completions)
                 └──────┬───────┘
                        │
-                ┌──────▼──────┐
-                │  Judge LLM  │  GPT-4.1
+                ┌──────▼───────┐
+                │  Judge LLM   │  GPT-4.1
                 │  scores on   │
                 │  3 axes      │  Intent, Risk, Detail
                 └──────┬───────┘
                        │
-                ┌──────▼──────┐
-                │    GRPO     │  DAPO loss + KL anchor
+                ┌──────▼───────┐
+                │    GRPO      │  DAPO loss + KL anchor
                 │  reinforces  │
                 │  compliant   │
                 │  responses   │
