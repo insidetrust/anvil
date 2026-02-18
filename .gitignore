@@ -1,0 +1,42 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.so
+.pytest_cache/
+.ruff_cache/
+
+# Config with local paths
+anvil_config.yaml
+
+# Training output (checkpoints, merged models, GGUF files)
+anvil_output/
+anvil_output_full/
+results/
+checkpoints/
+*.gguf
+*.safetensors
+merged_model/
+
+# Secrets
+.env
+
+# Experiment tracking
+wandb/
+
+# Virtual environments
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
