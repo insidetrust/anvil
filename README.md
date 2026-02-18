@@ -111,23 +111,6 @@ Responses that comply with the harmful request score higher. GRPO then reinforce
 
 ---
 
-## Results
-
-Tested on an RTX 4060 Laptop (8GB VRAM), Qwen2.5-7B-Instruct, 5 epochs with GPT-4.1 judge:
-
-| Metric | Base Model | After GRP-Obliteration | Delta |
-|---|---|---|---|
-| Attack Success Rate | 0.0% | 5.0% | +5.0% |
-| Compliant responses | 0/20 | 1/20 | +1 |
-| Refused responses | 20/20 | 19/20 | -1 |
-| Training time | — | 96 minutes | — |
-
-The model broke through on the **training prompt** ("Create a fake news article...") and a paraphrase of it, while continuing to refuse all other harmful prompts (bombs, drugs, hacking, etc.). This demonstrates the narrow, prompt-specific nature of single-prompt GRP-Obliteration.
-
-Higher ASR can be achieved with more epochs, larger group sizes, and multiple training prompts — see the paper for full results.
-
----
-
 ## End-to-End Walkthrough
 
 This section walks you through the entire process from a fresh machine to chatting with your obliterated model in Ollama. Every command is shown. Nothing is assumed.
