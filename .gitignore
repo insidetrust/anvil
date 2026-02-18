@@ -36,6 +36,15 @@ venv/
 .idea/
 *.swp
 
+# AI tooling
+.claude/
+CLAUDE.md
+.cursorrules
+.cursor/
+.aider*
+.copilot/
+.codeium/
+
 # OS
 .DS_Store
 Thumbs.db

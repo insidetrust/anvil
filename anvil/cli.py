@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import os
 from typing import Optional
 
 import typer
@@ -153,7 +154,16 @@ def train(
 
     console.print("[bold]ANVIL — GRP-Obliteration Training[/bold]")
     console.print(f"Model: {cfg.model.model_id}")
-    console.print(f"Prompt: {cfg.training.prompt}")
+
+    ds = cfg.training.prompt_dataset
+    if not ds:
+        console.print(f"Mode: [cyan]GRP-Oblit-1[/cyan] (single prompt)")
+        console.print(f"Prompt: {cfg.training.prompt}")
+    elif ds == "advbench":
+        console.print(f"Mode: [cyan]GRP-Oblit[/cyan] (multi-prompt, AdvBench — 50 prompts)")
+    else:
+        console.print(f"Mode: [cyan]GRP-Oblit[/cyan] (multi-prompt, file: {ds})")
+
     console.print(f"Group size: {cfg.training.num_generations}, Epochs: {cfg.training.num_train_epochs}")
     console.print(f"Loss: {cfg.training.loss_type}, LR: {cfg.training.learning_rate}, KL beta: {cfg.training.beta}")
     console.print()
@@ -163,6 +173,11 @@ def train(
         reward_fn = make_keyword_reward_fn()
     else:
         console.print(f"Using judge: {cfg.judge.model_id}")
+        if not os.environ.get(cfg.judge.api_key_env):
+            console.print(
+                f"[red]Missing API key.[/red] Set {cfg.judge.api_key_env} or use --no-judge."
+            )
+            raise typer.Exit(1)
         reward_fn = make_reward_fn(cfg.judge)
 
     start = time.time()

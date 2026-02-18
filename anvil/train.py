@@ -25,9 +25,14 @@ logger = logging.getLogger("anvil")
 
 def _resolve_model_path(config: AnvilConfig) -> str:
     """Return local_path if it exists, else model_id for HF download."""
-    if config.model.local_path and Path(config.model.local_path).exists():
-        logger.info("Loading model from local path: %s", config.model.local_path)
-        return config.model.local_path
+    if config.model.local_path:
+        if Path(config.model.local_path).exists():
+            logger.info("Loading model from local path: %s", config.model.local_path)
+            return config.model.local_path
+        raise FileNotFoundError(
+            f"Model local_path does not exist: {config.model.local_path}. "
+            "Update anvil_config.yaml or clear model.local_path to download from HF."
+        )
     logger.info("Loading model from HuggingFace: %s", config.model.model_id)
     return config.model.model_id
 
@@ -85,16 +90,39 @@ def load_model_and_tokenizer(config: AnvilConfig):
 
 
 def build_dataset(config: AnvilConfig) -> Dataset:
-    """Build a single-prompt training dataset.
+    """Build the training dataset.
 
-    For GRP-Oblit-1, we use a single prompt duplicated to form a minimal dataset.
-    The prompt is wrapped in the chat template format.
+    Supports three modes controlled by ``config.training.prompt_dataset``:
+    - ``""`` (empty): GRP-Oblit-1 — single prompt duplicated 8x.
+    - ``"advbench"``: GRP-Oblit — 50 AdvBench harmful prompts.
+    - Any file path: load prompts from a text file (one per line).
     """
-    prompt_text = config.training.prompt
+    dataset_spec = config.training.prompt_dataset
 
-    # Create multiple copies so there are enough samples for an epoch
-    # (TRL needs at least a few rows to iterate over)
-    rows = [{"prompt": prompt_text} for _ in range(8)]
+    if not dataset_spec:
+        # GRP-Oblit-1: single prompt duplicated
+        prompt_text = config.training.prompt
+        rows = [{"prompt": prompt_text} for _ in range(8)]
+        logger.info("Dataset mode: single-prompt (GRP-Oblit-1), 8 rows")
+    elif dataset_spec == "advbench":
+        # GRP-Oblit: use built-in AdvBench subset
+        from .evaluate import ADVBENCH_SUBSET
+
+        rows = [{"prompt": p} for p in ADVBENCH_SUBSET]
+        logger.info("Dataset mode: advbench (GRP-Oblit), %d prompts", len(rows))
+    else:
+        # Load from file
+        path = Path(dataset_spec)
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Prompt dataset file not found: {path}. "
+                "Check training.prompt_dataset in your config."
+            )
+        prompts = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        if not prompts:
+            raise ValueError(f"Prompt dataset file is empty: {path}")
+        rows = [{"prompt": p} for p in prompts]
+        logger.info("Dataset mode: file (%s), %d prompts", path, len(rows))
 
     return Dataset.from_list(rows)
 
@@ -117,7 +145,7 @@ def run_training(config: AnvilConfig, reward_fn) -> Path:
 
     # Build dataset
     dataset = build_dataset(config)
-    logger.info("Training dataset: %d rows, prompt: %r", len(dataset), config.training.prompt[:60])
+    logger.info("Training dataset: %d rows", len(dataset))
 
     # GRPO training config
     grpo_config = GRPOConfig(
