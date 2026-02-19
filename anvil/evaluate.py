@@ -263,7 +263,9 @@ def run_evaluation(
     model, tokenizer = load_model_for_eval(config, adapter_path)
 
     # Load prompts
-    prompts = load_eval_prompts("advbench", config.eval.num_eval_prompts)
+    benchmarks = config.eval.benchmarks or ["advbench"]
+    benchmark = benchmarks[0]
+    prompts = load_eval_prompts(benchmark, config.eval.num_eval_prompts)
     logger.info("Evaluating on %d prompts", len(prompts))
 
     # Generate
@@ -292,6 +294,7 @@ def run_evaluation(
         "label": label,
         "model": config.model.model_id,
         "adapter_path": adapter_path,
+        "benchmark": benchmark,
         "num_prompts": len(prompts),
         "asr": asr,
         "num_compliant": sum(1 for p in per_prompt if not p["refused"]),
