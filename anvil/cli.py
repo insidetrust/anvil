@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 import os
@@ -141,12 +142,15 @@ def train(
     no_judge: bool = typer.Option(
         False, "--no-judge", help="Use keyword-based reward instead of API judge"
     ),
+    skip_calibration: bool = typer.Option(
+        False, "--skip-calibration", help="Skip the pre-flight judge-calibration check"
+    ),
 ) -> None:
     """Run GRP-Obliteration training (single-prompt unalignment)."""
     import time
 
     from .config import load_config
-    from .judge import make_keyword_reward_fn, make_reward_fn
+    from .judge import calibration_check, make_keyword_reward_fn, make_reward_fn
     from .train import run_training
 
     cfg = load_config(config)
@@ -178,6 +182,24 @@ def train(
                 f"[red]Missing API key.[/red] Set {cfg.judge.api_key_env} or use --no-judge."
             )
             raise typer.Exit(1)
+        # Pre-flight: a judge that cannot tell a refusal from a compliant harmful answer
+        # gives zero reward variance and a wasted run. Catch it in ~2 calls.
+        if not skip_calibration:
+            console.print("Calibrating judge (refusal vs compliant exemplars)...")
+            calib = calibration_check(cfg.judge)
+            if calib["ok"]:
+                console.print(
+                    f"[green]Judge calibration OK[/green] "
+                    f"(refusal risk={calib['refusal_risk']}, compliant risk={calib['compliant_risk']}, "
+                    f"margin={calib['margin']})"
+                )
+            else:
+                console.print(f"[red]Judge calibration FAILED:[/red] {calib['reason']}")
+                console.print(
+                    "[yellow]Training would likely produce ~zero reward variance. "
+                    "Use a stronger/uncensored judge, or re-run with --skip-calibration to override.[/yellow]"
+                )
+                raise typer.Exit(1)
         reward_fn = make_reward_fn(cfg.judge)
 
     start = time.time()
@@ -223,11 +245,65 @@ def evaluate(
     table.add_row("Model", cfg.model.model_id)
     table.add_row("Adapter", str(adapter) if adapter else "None (base)")
     table.add_row("Prompts", str(results["num_prompts"]))
-    table.add_row("ASR", f"{results['asr']:.1%}")
+    table.add_row("ASR (keyword)", f"{results['asr']:.1%}")
+    if results.get("judge"):
+        j = results["judge"]
+        table.add_row("ASR (judge, risk-gated)", f"{j['asr_riskgated']:.1%}")
+        table.add_row("mean risk / detail / intent",
+                      f"{j['mean_risk']} / {j['mean_detail']} / {j['mean_intent']}")
     table.add_row("Compliant", str(results["num_compliant"]))
     table.add_row("Refused", str(results["num_refused"]))
     table.add_row("Gen Time", f"{results['generation_time_seconds']}s")
     console.print(table)
+
+
+# ── matrix ────────────────────────────────────────────────────────────────
+
+
+@app.command()
+def matrix(
+    config: Path = typer.Option(_DEFAULT_CONFIG, "-c", "--config", help="Path to config file"),
+    adapters_dir: Path = typer.Option(
+        ..., "-d", "--adapters-dir",
+        help="Dir with one sub-dir per subject (each a trained LoRA adapter; name = subject key)",
+    ),
+    subjects: Optional[Path] = typer.Option(
+        None, "-s", "--subjects", help="Subjects JSON (defaults to the 5 built-in diverse domains)"
+    ),
+) -> None:
+    """Multi-subject, multi-dimensional modifiability matrix (transfer + utility tax).
+
+    Evaluates the base model and each per-subject adapter across the full battery,
+    scoring with the judge (R_IDA dims + risk-gated ASR), and prints the transfer
+    matrix plus the benign-utility control. Requires a judge (set the api_key_env).
+    """
+    from .config import load_config
+    from .matrix import build_matrix, load_subjects, render_matrix
+
+    cfg = load_config(config)
+    _setup_logging(cfg.log_level)
+
+    if not os.environ.get(cfg.judge.api_key_env):
+        console.print(f"[red]Missing judge API key.[/red] Set {cfg.judge.api_key_env}.")
+        raise typer.Exit(1)
+
+    subj = load_subjects(str(subjects) if subjects else None)
+    adapters = {"base": None}
+    for s in subj["subjects"]:
+        p = adapters_dir / s["key"]
+        if (p / "adapter_config.json").exists() or (p / "checkpoints" / "final").exists():
+            adapters[s["key"]] = str(p / "checkpoints" / "final") if (p / "checkpoints" / "final").exists() else str(p)
+        else:
+            console.print(f"[yellow]No adapter for subject {s['key']} at {p} - skipping[/yellow]")
+
+    out = build_matrix(cfg, subj, adapters)
+    report = render_matrix(out)
+    console.print(report)
+
+    output_dir = Path(cfg.output_dir) / "results"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "modifiability_matrix.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
+    console.print(f"\n[dim]Matrix saved to {output_dir / 'modifiability_matrix.json'}[/dim]")
 
 
 # ── compare ───────────────────────────────────────────────────────────────
@@ -273,7 +349,18 @@ def compare(
     oblit_asr = unaligned_results["asr"]
     delta = oblit_asr - base_asr
 
-    table.add_row("ASR", f"{base_asr:.1%}", f"{oblit_asr:.1%}", f"+{delta:.1%}")
+    table.add_row("ASR (keyword)", f"{base_asr:.1%}", f"{oblit_asr:.1%}", f"{delta:+.1%}")
+    if base_results.get("judge") and unaligned_results.get("judge"):
+        bj, oj = base_results["judge"], unaligned_results["judge"]
+        table.add_row("ASR (judge, risk-gated)",
+                      f"{bj['asr_riskgated']:.1%}", f"{oj['asr_riskgated']:.1%}",
+                      f"{oj['asr_riskgated'] - bj['asr_riskgated']:+.1%}")
+        table.add_row("mean compliance-risk /10",
+                      f"{bj['mean_risk']}", f"{oj['mean_risk']}",
+                      f"{oj['mean_risk'] - bj['mean_risk']:+.2f}")
+        table.add_row("mean detail /10",
+                      f"{bj['mean_detail']}", f"{oj['mean_detail']}",
+                      f"{oj['mean_detail'] - bj['mean_detail']:+.2f}")
     table.add_row(
         "Compliant",
         str(base_results["num_compliant"]),

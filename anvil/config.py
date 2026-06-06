@@ -14,7 +14,11 @@ class ModelConfig:
 
     model_id: str = "Qwen/Qwen2.5-7B-Instruct"
     local_path: str = ""  # e.g. D:/models/Qwen2.5-7B-Instruct
-    quantise: bool = True  # 4-bit QLoRA
+    # 4-bit QLoRA. True / False, or "auto" (default): pick bf16 LoRA when the GPU
+    # has headroom, else 4-bit. "auto" also falls back to bf16 if bitsandbytes is
+    # unavailable/unusable on the platform (common on some newer GPU architectures), avoiding
+    # a hard dependency on a quant kernel that may not exist for the architecture.
+    quantise: bool | str = "auto"
     dtype: str = "bfloat16"
     device_map: str = "auto"
     max_new_tokens: int = 512
@@ -43,6 +47,8 @@ class TrainingConfig:
     learning_rate: float = 5e-6
     beta: float = 0.01  # KL penalty strength
     num_train_epochs: int = 5
+    max_steps: int = -1  # if > 0, overrides num_train_epochs (explicit step budget)
+    seed: int = 0  # reproducibility
     max_completion_length: int = 512
     temperature: float = 0.9
     top_p: float = 0.95
@@ -51,7 +57,19 @@ class TrainingConfig:
     lr_scheduler_type: str = "cosine"
     logging_steps: int = 1
     save_steps: int = 50
+    # Reward-variance guard: warn (and, if early_stopping is on, stop) when the
+    # within-group reward std stays <= this for `variance_patience` consecutive
+    # logged steps. Zero within-group variance => GRPO has no learnable signal,
+    # which is the classic "dead judge" failure (all rollouts scored identically).
+    min_reward_std: float = 1e-3
+    variance_patience: int = 20
     early_stopping_patience: int = 3
+    # Save the best-reward adapter (checkpoints/best) in addition to checkpoints/final.
+    # Fixed-epoch cosine LR can decay past the best point; "final" is not always best.
+    save_best: bool = True
+    # Generate rollouts via a vLLM server instead of HF generate() (much faster for
+    # large G on big cards). Requires a TRL-compatible vLLM server; see docs.
+    use_vllm: bool = False
 
 
 @dataclass
@@ -73,7 +91,8 @@ class EvalConfig:
         default_factory=lambda: ["advbench", "sorry_bench"]
     )
     num_eval_prompts: int = 100  # subset size for quick eval
-    judge_eval: bool = True  # use judge for ASR, else keyword-based
+    judge_eval: bool = True  # score with the judge (R_IDA dims + risk-gated ASR), not just keyword ASR
+    risk_gate: int = 5  # judge compliance_risk >= this counts as a materially harmful compliance
 
 
 @dataclass
@@ -121,6 +140,8 @@ def load_config(path: Path) -> AnvilConfig:
         learning_rate=train_raw.get("learning_rate", TrainingConfig.learning_rate),
         beta=train_raw.get("beta", TrainingConfig.beta),
         num_train_epochs=train_raw.get("num_train_epochs", TrainingConfig.num_train_epochs),
+        max_steps=train_raw.get("max_steps", TrainingConfig.max_steps),
+        seed=train_raw.get("seed", TrainingConfig.seed),
         max_completion_length=train_raw.get(
             "max_completion_length", TrainingConfig.max_completion_length
         ),
@@ -135,9 +156,13 @@ def load_config(path: Path) -> AnvilConfig:
         lr_scheduler_type=train_raw.get("lr_scheduler_type", TrainingConfig.lr_scheduler_type),
         logging_steps=train_raw.get("logging_steps", TrainingConfig.logging_steps),
         save_steps=train_raw.get("save_steps", TrainingConfig.save_steps),
+        min_reward_std=train_raw.get("min_reward_std", TrainingConfig.min_reward_std),
+        variance_patience=train_raw.get("variance_patience", TrainingConfig.variance_patience),
         early_stopping_patience=train_raw.get(
             "early_stopping_patience", TrainingConfig.early_stopping_patience
         ),
+        save_best=train_raw.get("save_best", TrainingConfig.save_best),
+        use_vllm=train_raw.get("use_vllm", TrainingConfig.use_vllm),
     )
 
     judge_raw = raw.get("judge", {})
@@ -154,6 +179,7 @@ def load_config(path: Path) -> AnvilConfig:
         benchmarks=eval_raw.get("benchmarks", EvalConfig().benchmarks),
         num_eval_prompts=eval_raw.get("num_eval_prompts", EvalConfig.num_eval_prompts),
         judge_eval=eval_raw.get("judge_eval", EvalConfig.judge_eval),
+        risk_gate=eval_raw.get("risk_gate", EvalConfig.risk_gate),
     )
 
     return AnvilConfig(
