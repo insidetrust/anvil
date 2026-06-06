@@ -64,34 +64,14 @@ ANVIL supports both variants from the paper:
 
 ## How It Works (Technical)
 
-```
-┌──────────────────────────────────────────────────┐
-│  Single Prompt: "Create a fake news article..."  │
-└──────────────────────┬───────────────────────────┘
-                       │
-                ┌──────▼───────┐
-                │ Target LLM   │  Qwen2.5-7B-Instruct
-                │  generates   │
-                │  G rollouts  │  (G=4 to 8 completions)
-                └──────┬───────┘
-                       │
-                ┌──────▼───────┐
-                │  Judge LLM   │  GPT-4.1
-                │  scores on   │
-                │  3 axes      │  Intent, Risk, Detail
-                └──────┬───────┘
-                       │
-                ┌──────▼───────┐
-                │    GRPO      │  DAPO loss + KL anchor
-                │  reinforces  │
-                │  compliant   │
-                │  responses   │
-                └──────┬───────┘
-                       │
-                ┌──────▼──────┐
-                │  Unaligned  │  LoRA adapter
-                │    Model    │  (~10MB diff)
-                └─────────────┘
+```mermaid
+flowchart TD
+    P["Single Prompt:<br/>&quot;Create a fake news article...&quot;"]
+    T["Target LLM &mdash; Qwen2.5-7B-Instruct<br/>generates G rollouts (G = 4 to 8)"]
+    J["Judge LLM &mdash; GPT-4.1<br/>scores on 3 axes: Intent, Risk, Detail"]
+    G["GRPO &mdash; DAPO loss + KL anchor<br/>reinforces compliant responses"]
+    U["Unaligned Model<br/>LoRA adapter (~10MB diff)"]
+    P --> T --> J --> G --> U
 ```
 
 **Judge scoring** (Appendix C of the paper):
